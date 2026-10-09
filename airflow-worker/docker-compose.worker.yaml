@@ -1,0 +1,50 @@
+# Cluster Airflow con CeleryExecutor — INSTANCIA WORKER
+#
+# Corre SOLO el servicio airflow-worker. Postgres y RabbitMQ viven en la
+# instancia master; este worker se conecta a ellos por red (IP privada
+# de la VPC). Usa este mismo archivo en worker-1 y worker-2 — solo
+# cambia WORKER_NAME en el .env de cada uno para distinguirlos en Flower.
+#
+# Variables que DEBES definir en el .env de esta instancia:
+#
+# AIRFLOW_UID                  - User ID dentro del contenedor (usa: id -u)
+# AIRFLOW_PROJ_DIR             - Ruta base donde se monta EFS. Default: .
+# WORKER_NAME                  - Nombre único para este worker, ej. worker-1
+# RABBITMQ_DEFAULT_USER        - Debe coincidir con el de la master
+# RABBITMQ_DEFAULT_PASS        - Debe coincidir con el de la master
+---
+services:
+  airflow-worker:
+    image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.1.5}
+    hostname: ${WORKER_NAME:-worker}
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+      # IMPORTANTE: reemplaza <MASTER_PRIVATE_IP> por la IP privada real
+      # de la instancia master dentro de la VPC.
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@<MASTER_PRIVATE_IP>/airflow
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@<MASTER_PRIVATE_IP>/airflow
+      AIRFLOW__CELERY__BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER:-rabbit}:${RABBITMQ_DEFAULT_PASS:-rabbit}@<MASTER_PRIVATE_IP>:5672//
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://<MASTER_PRIVATE_IP>:8080/execution/'
+      AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+    command: celery worker
+    volumes:
+      # Mismo filesystem EFS que la master monta en /dags y /logs.
+      # Sin esto, el worker no tiene el código de los DAGs que le piden ejecutar.
+      - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
+      - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
+      - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
+      - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    user: "${AIRFLOW_UID:-50000}:0"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
