@@ -125,6 +125,12 @@ sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
 Sube `docker-compose.master.yaml` a `~/airflow-master/docker-compose.yaml` (scp o git clone).
 
+## ~ Comando Instalación git
+```bash
+sudo dnf install -y git
+git --version
+```
+
 Edita el archivo y **reemplaza `<MASTER_PRIVATE_IP>`** por la IP privada real de esta instancia (aparece dos veces, en `AIRFLOW__CORE__EXECUTION_API_SERVER_URL`).
 
 Crea el `.env`:
